@@ -1,0 +1,161 @@
+@import "tailwindcss";
+
+/* === D1-style TV Theme Variables === */
+:root {
+  --tv-bg: #0d0d0d;
+  --tv-panel: #1a1a1a;
+  --tv-card: #242424;
+  --tv-border: rgba(255,255,255,0.06);
+  --tv-text: #f5f5f5;
+  --tv-text-muted: #888888;
+}
+
+@theme inline {
+  --color-tv-bg: var(--tv-bg);
+  --color-tv-panel: var(--tv-panel);
+  --color-tv-card: var(--tv-card);
+  --color-tv-text: var(--tv-text);
+  --color-tv-text-muted: var(--tv-text-muted);
+  --font-sans: system-ui, -apple-system, sans-serif;
+}
+
+* { text-rendering: optimizeLegibility; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--tv-bg);
+  color: var(--tv-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Custom Scrollbar (D1-style) ─── */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+
+/* ─── Shared Panel Card ────────────────────────────────── */
+.panel-card {
+  background: var(--tv-panel);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.03);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Panel Header Row ─────────────────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+/* ─── Panel Heading Text ───────────────────────────────── */
+.panel-heading {
+  font-size: 0.75rem;   /* 12px = text-xs */
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255,255,255,0.7);
+}
+
+/* ─── Top Bar / Header Bar ─────────────────────────────── */
+.tv-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  background: var(--tv-panel);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ─── Error Banner ─────────────────────────────────────── */
+.error-banner {
+  text-align: center;
+  font-size: 0.75rem;
+  padding: 0.25rem 0;
+  border-radius: 4px;
+  background: rgba(239,68,68,0.15);
+  color: #f87171;
+}
+
+/* ─── Stats Card Shared ────────────────────────────────── */
+.stats-card {
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: 0.375rem 0.5rem 0.5rem;
+}
+
+.stats-card-gray {
+  background: rgb(85, 85, 85);
+  border-color: rgba(255,255,255,0.04);
+}
+
+.stats-label {
+  font-size: 0.625rem;  /* 10px */
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.125rem;
+}
+
+.stats-value {
+  color: #fff;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* ─── Repair Table Shared Styles ───────────────────────── */
+.repair-table-header {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 0.5rem;
+  font-size: 0.6875rem;  /* 11px */
+  text-align: center;
+  color: rgba(255,255,255,0.35);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.repair-table-row {
+  transition: filter 0.15s;
+}
+.repair-table-row:hover { filter: brightness(1.1); }
+
+.repair-table-cell {
+  text-align: center;
+  padding: 0.5rem 0.5rem;
+  font-size: 0.6875rem;  /* 11px */
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Hide scrollbar visually but keep scrolling functional */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* Keep header and body columns aligned when scrollbar appears */
+.custom-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+/* ─── Urgent Table Shared Styles ───────────────────────── */
+.urgent-table th {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.35rem 0.625rem;
+  font-size: 0.625rem;  /* 10px */
+  color: rgba(255,255,255,0.25);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.urgent-table th:first-child { text-align: left; width: 18%; }
+.urgent-table th:nth-child(2) { text-align: left; width: 62%; }
+.urgent-table th:nth-child(3)  { text-align: right; width: 20%; }
