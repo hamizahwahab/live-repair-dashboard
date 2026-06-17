@@ -6,11 +6,14 @@
  * - Opens Electron window pointing to Next.js dev server (port 3004)
  */
 
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const initSqlJs = require("sql.js");
+
+// Allow siren audio to play without user interaction (Electron only)
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 const API_PORT = 8004;
@@ -99,7 +102,64 @@ async function initDatabase() {
     db.run("ALTER TABLE repair_jobs ADD COLUMN urgent_deadline TEXT DEFAULT ''");
   }
 
-  console.log("[DB] Tables initialized");
+  // ─── Triggers ──────────────────────────────────────────────────
+  // Auto-flag urgent on INSERT if ETA is already 3+ days past
+  db.run("DROP TRIGGER IF EXISTS trg_repair_urgent_insert");
+  db.run(`
+    CREATE TRIGGER trg_repair_urgent_insert
+    AFTER INSERT ON repair_jobs
+    FOR EACH ROW
+    WHEN NEW.status != 'completed'
+      AND NEW.eta != ''
+      AND NEW.eta < date('now', '-3 days')
+      AND (NEW.is_urgent = 0 OR NEW.is_urgent IS NULL)
+    BEGIN
+      UPDATE repair_jobs SET
+        is_urgent = 1,
+        urgent_reason = CASE
+          WHEN NEW.urgent_reason IS NULL OR NEW.urgent_reason = ''
+          THEN 'Auto-flagged — ETA passed'
+          ELSE NEW.urgent_reason
+        END
+      WHERE id = NEW.id;
+    END;
+  `);
+
+  // Auto-flag urgent when ETA updated to a past date
+  db.run("DROP TRIGGER IF EXISTS trg_repair_urgent_update_eta");
+  db.run(`
+    CREATE TRIGGER trg_repair_urgent_update_eta
+    AFTER UPDATE OF eta ON repair_jobs
+    FOR EACH ROW
+    WHEN NEW.eta != ''
+      AND NEW.eta < date('now', '-3 days')
+      AND NEW.status != 'completed'
+      AND (OLD.is_urgent = 0 OR OLD.is_urgent IS NULL)
+    BEGIN
+      UPDATE repair_jobs SET
+        is_urgent = 1,
+        urgent_reason = CASE
+          WHEN NEW.urgent_reason IS NULL OR NEW.urgent_reason = ''
+          THEN 'Auto-flagged — ETA passed'
+          ELSE NEW.urgent_reason
+        END
+      WHERE id = NEW.id;
+    END;
+  `);
+
+  // Auto-clear urgent when job is completed
+  db.run("DROP TRIGGER IF EXISTS trg_repair_completed_clear");
+  db.run(`
+    CREATE TRIGGER trg_repair_completed_clear
+    AFTER UPDATE OF status ON repair_jobs
+    FOR EACH ROW
+    WHEN NEW.status = 'completed' AND OLD.status != 'completed'
+    BEGIN
+      UPDATE repair_jobs SET is_urgent = 0 WHERE id = NEW.id;
+    END;
+  `);
+
+  console.log("[DB] Tables + triggers initialized");
   saveDatabase();
 }
 
@@ -157,6 +217,16 @@ function verifyApiKey(req) {
 function extractId(url, prefix) {
   const match = url.match(new RegExp(`^${prefix}/(\\d+)$`));
   return match ? parseInt(match[1], 10) : null;
+}
+
+/** Run a SELECT query and map result rows to objects by column array */
+function execRows(sql, columns) {
+  const result = db.exec(sql);
+  return result[0]?.values.map((row) => {
+    const obj = {};
+    columns.forEach((col, i) => (obj[col] = row[i]));
+    return obj;
+  }) || [];
 }
 
 /** GET /api/stats — compute dashboard statistics */
@@ -249,15 +319,8 @@ async function handleRequest(req, res) {
     }
 
     if (method === "GET" && pathname === "/api/repair-jobs") {
-      const jobs = db.exec(
-        "SELECT * FROM repair_jobs ORDER BY date_in DESC, id DESC LIMIT 50"
-      );
       const columns = ["id","date_in","customer","area","drone_model","problem","technician","status","eta","spare_status","remarks","is_urgent","urgent_reason","urgent_deadline","created_at","updated_at"];
-      const rows = jobs[0]?.values.map((row) => {
-        const obj = {};
-        columns.forEach((col, i) => (obj[col] = row[i]));
-        return obj;
-      }) || [];
+      const rows = execRows("SELECT * FROM repair_jobs ORDER BY date_in DESC, id DESC LIMIT 50", columns);
       return sendJson(res, 200, rows);
     }
 
@@ -274,13 +337,8 @@ async function handleRequest(req, res) {
     }
 
     if (method === "GET" && pathname === "/api/spare-parts") {
-      const parts = db.exec("SELECT * FROM spare_parts ORDER BY id ASC");
       const columns = ["id","name","model","stock_level","status","notes","updated_at"];
-      const rows = parts[0]?.values.map((row) => {
-        const obj = {};
-        columns.forEach((col, i) => (obj[col] = row[i]));
-        return obj;
-      }) || [];
+      const rows = execRows("SELECT * FROM spare_parts ORDER BY id ASC", columns);
       return sendJson(res, 200, rows);
     }
 
@@ -300,17 +358,15 @@ async function handleRequest(req, res) {
       // Combines two sources:
       //   1. Manually flagged (is_urgent = 1)
       //   2. Auto-overdue (ETA passed by 3+ days, not completed)
-      const results = db.exec(`
+      const columns = ["id","date_in","customer","area","drone_model","problem","technician","status","eta","spare_status","remarks","is_urgent","urgent_reason","urgent_deadline","created_at","updated_at"];
+      const rows = execRows(`
         SELECT * FROM repair_jobs
         WHERE status != 'completed'
           AND (is_urgent = 1 OR (eta != '' AND eta < date('now', '-3 days')))
         ORDER BY is_urgent DESC, eta ASC
-      `);
-      const columns = ["id","date_in","customer","area","drone_model","problem","technician","status","eta","spare_status","remarks","is_urgent","urgent_reason","urgent_deadline","created_at","updated_at"];
-      const rows = results[0]?.values.map((row) => {
-        const obj = {};
-        columns.forEach((col, i) => (obj[col] = row[i]));
-        // Compute reason & deadline display
+      `, columns);
+      // Compute reason & deadline display for each row
+      rows.forEach((obj) => {
         if (obj.is_urgent) {
           obj._reason = obj.urgent_reason || "Urgent — marked by staff";
           obj._deadline = obj.urgent_deadline || "ASAP";
@@ -323,19 +379,13 @@ async function handleRequest(req, res) {
           obj._deadline = obj.eta;
           obj._isAutoOverdue = true;
         }
-        return obj;
-      }) || [];
+      });
       return sendJson(res, 200, rows);
     }
 
     if (method === "GET" && pathname === "/api/notes") {
-      const result = db.exec("SELECT * FROM notes ORDER BY created_at DESC");
       const columns = ["id", "message", "created_at", "updated_at"];
-      const rows = result[0]?.values.map((row) => {
-        const obj = {};
-        columns.forEach((col, i) => (obj[col] = row[i]));
-        return obj;
-      }) || [];
+      const rows = execRows("SELECT * FROM notes ORDER BY created_at DESC", columns);
       return sendJson(res, 200, rows);
     }
 
@@ -360,7 +410,7 @@ async function handleRequest(req, res) {
     if (method === "POST" && pathname === "/api/repair-jobs") {
       const body = await parseBody(req);
       if (!body) return sendJson(res, 400, { error: "Invalid JSON body" });
-      const { date_in, customer, area, drone_model, problem, technician, status, eta, spare_status, remarks } = body;
+      const { date_in, customer, area, drone_model, problem, technician, status, eta, spare_status, remarks, is_urgent, urgent_reason, urgent_deadline } = body;
 
       if (!date_in || !customer || !drone_model || !problem || !technician) {
         return sendJson(res, 400, { error: "Missing required fields: date_in, customer, drone_model, problem, technician" });
@@ -368,11 +418,11 @@ async function handleRequest(req, res) {
 
       // Use prepared statement with INSERT + RETURNING to reliably retrieve the new ID
       const insertStmt = db.prepare(
-        `INSERT INTO repair_jobs (date_in, customer, area, drone_model, problem, technician, status, eta, spare_status, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO repair_jobs (date_in, customer, area, drone_model, problem, technician, status, eta, spare_status, remarks, is_urgent, urgent_reason, urgent_deadline)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING id`
       );
-      insertStmt.bind([date_in, customer, area || "", drone_model, problem, technician, status || "pending", eta || "", spare_status || "", remarks || ""]);
+      insertStmt.bind([date_in, customer, area || "", drone_model, problem, technician, status || "pending", eta || "", spare_status || "", remarks || "", is_urgent ?? 0, urgent_reason ?? "", urgent_deadline ?? ""]);
       let newId = 0;
       while (insertStmt.step()) {
         const row = insertStmt.getAsObject();
@@ -555,6 +605,49 @@ function startApiServer() {
   });
 }
 
+// ─── Auto-Flag Overdue Jobs ───────────────────────────────────────────────────
+function runOverdueCheck() {
+  if (!db) return;
+  db.run(`
+    UPDATE repair_jobs
+    SET is_urgent = 1,
+        urgent_reason = CASE
+          WHEN urgent_reason IS NULL OR urgent_reason = ''
+          THEN 'Auto-flagged — ETA passed'
+          ELSE urgent_reason
+        END
+    WHERE status != 'completed'
+      AND eta != ''
+      AND eta < date('now', '-3 days')
+      AND is_urgent = 0
+  `);
+  const count = db.getRowsModified();
+  if (count > 0) {
+    console.log(`[Auto] Flagged ${count} overdue job(s) as urgent`);
+    saveDatabase();
+  }
+}
+
+function startAutoFlagTimer() {
+  // Run once at startup (catches any overdue jobs from when app was off)
+  runOverdueCheck();
+
+  // Then schedule for every midnight
+  function scheduleMidnight() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setDate(now.getDate() + 1);
+    next.setHours(0, 0, 0, 0);
+    const msUntilMidnight = next.getTime() - now.getTime();
+
+    setTimeout(() => {
+      runOverdueCheck();
+      scheduleMidnight(); // Re-schedule for next midnight
+    }, msUntilMidnight);
+  }
+  scheduleMidnight();
+}
+
 // ─── Electron Window ─────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -585,62 +678,12 @@ function createWindow() {
   });
 }
 
-// ─── IPC Channels ────────────────────────────────────────────────────────────
-ipcMain.handle("db:get-repair-jobs", () => {
-  const result = db.exec("SELECT * FROM repair_jobs ORDER BY date_in DESC, id DESC LIMIT 50");
-  const columns = ["id","date_in","customer","area","drone_model","problem","technician","status","eta","spare_status","remarks","is_urgent","urgent_reason","urgent_deadline","created_at","updated_at"];
-  return result[0]?.values.map((row) => {
-    const obj = {};
-    columns.forEach((col, i) => (obj[col] = row[i]));
-    return obj;
-  }) || [];
-});
-
-ipcMain.handle("db:get-stats", () => handleGetStats());
-
-ipcMain.handle("db:get-spare-parts", () => {
-  const result = db.exec("SELECT * FROM spare_parts ORDER BY id ASC");
-  const columns = ["id","name","model","stock_level","status","notes","updated_at"];
-  return result[0]?.values.map((row) => {
-    const obj = {};
-    columns.forEach((col, i) => (obj[col] = row[i]));
-    return obj;
-  }) || [];
-});
-
-ipcMain.handle("db:get-urgent-cases", () => {
-  const result = db.exec(`
-    SELECT * FROM repair_jobs
-    WHERE status != 'completed'
-      AND (is_urgent = 1 OR (eta != '' AND eta < date('now', '-3 days')))
-    ORDER BY is_urgent DESC, eta ASC
-  `);
-  const columns = ["id","date_in","customer","area","drone_model","problem","technician","status","eta","spare_status","remarks","is_urgent","urgent_reason","urgent_deadline","created_at","updated_at"];
-  return result[0]?.values.map((row) => {
-    const obj = {};
-    columns.forEach((col, i) => (obj[col] = row[i]));
-    // Compute reason & deadline display
-    if (obj.is_urgent) {
-      obj._reason = obj.urgent_reason || "Urgent — marked by staff";
-      obj._deadline = obj.urgent_deadline || "ASAP";
-      obj._isAutoOverdue = false;
-    } else {
-      const etaDate = new Date(obj.eta + "T00:00:00");
-      const today = new Date();
-      const daysOverdue = Math.floor((today - etaDate) / (1000 * 60 * 60 * 24));
-      obj._reason = `⚠ Overdue by ${daysOverdue} day${daysOverdue > 1 ? "s" : ""}`;
-      obj._deadline = obj.eta;
-      obj._isAutoOverdue = true;
-    }
-    return obj;
-  }) || [];
-});
-
 // ─── App Lifecycle ───────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   try {
     await initDatabase();
     startApiServer();
+    startAutoFlagTimer();
     createWindow();
     console.log("[App] Ready — API on :8004, window loading :3004");
   } catch (err) {

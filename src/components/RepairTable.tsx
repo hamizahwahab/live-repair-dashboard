@@ -36,7 +36,7 @@ function SpareStatus({ text }: { text: string }) {
 }
 
 function formatDate(dateStr: string) {
-  if (!dateStr) return "";
+  if (!dateStr) return null;
   // Handle ISO format: "2026-05-22" or "2026-05-22T12:00:00"
   const d = dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`;
   const date = new Date(d);
@@ -47,7 +47,15 @@ function formatDate(dateStr: string) {
   const mins = String(date.getMinutes()).padStart(2, "0");
   const ampm = date.getHours() >= 12 ? "PM" : "AM";
   const h12 = date.getHours() % 12 || 12;
-  return `${day}/${month}/${year}<br /><span class="text-[11px] text-white/30">${h12}:${mins} ${ampm}</span>`;
+  return (
+    <>
+      {day}-{month}-{year}
+      <br />
+      <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+        {h12}:{mins} {ampm}
+      </span>
+    </>
+  );
 }
 
 export default function RepairTable({ jobs }: Props) {
@@ -137,7 +145,7 @@ export default function RepairTable({ jobs }: Props) {
                     <span className="font-bold" style={{ color: "rgba(255,255,255,0.25)" }}>{idx + 1}</span>
                   </td>
                   <td className="repair-table-cell" style={{ width: columns[1].w }}>
-                    <span dangerouslySetInnerHTML={{ __html: formatDate(job.date_in) }} />
+                    {formatDate(job.date_in)}
                   </td>
                   <td className="repair-table-cell" style={{ width: columns[2].w }}>
                     <span className="font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>
@@ -180,11 +188,11 @@ export default function RepairTable({ jobs }: Props) {
                       );
                     })()}
                   </td>
-                  <td className="repair-table-cell" style={{ width: columns[6].w }}>
-                    <StatusPill status={job.status} />
-                  </td>
+                    <td className="repair-table-cell" style={{ width: columns[6].w }}>
+                      <StatusPill status={job.status} />
+                    </td>
                   <td className="repair-table-cell" style={{ width: columns[7].w }}>
-                    {job.eta ? <span dangerouslySetInnerHTML={{ __html: formatDate(job.eta) }} /> : "—"}
+                    {job.eta ? formatDate(job.eta) : "—"}
                   </td>
                   <td className="repair-table-cell" style={{ width: columns[8].w }}>
                     <SpareStatus text={job.spare_status} />

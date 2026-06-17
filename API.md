@@ -4,6 +4,24 @@ This document describes all HTTP endpoints exposed by the embedded API server of
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Authentication](#authentication)
+- [Common Headers](#common-headers)
+- [Error Response Format](#error-response-format)
+  - [HTTP Status Codes](#http-status-codes)
+  - [Error Handling Guide](#error-handling-guide)
+- [Endpoints: Repair Jobs](#endpoints-repair-jobs)
+- [Endpoints: Spare Parts](#endpoints-spare-parts)
+- [Endpoints: Notes](#endpoints-notes)
+- [Endpoints: Dashboard](#endpoints-dashboard)
+- [Database Schema](#database-schema)
+- [Seed Data](#seed-data)
+- [Postman Collection](#postman-collection)
+
+---
+
 ## Overview
 
 - **Base URL**: `http://localhost:8004`
@@ -72,6 +90,49 @@ All errors return a JSON object with a single `error` field:
 | 401  | Unauthorized (invalid/missing API key) |
 | 404  | Resource not found             |
 | 500  | Internal server error          |
+
+---
+
+## Error Handling Guide
+
+When integrating with the API, follow these guidelines to handle errors gracefully:
+
+### 1. Successful responses (200 / 201)
+
+Proceed with normal flow. The response body contains the expected data or a success confirmation.
+
+### 2. Bad Request (400)
+
+One of the following issues occurred:
+
+- **Missing required field**: Ensure all required fields (`customer`, `drone_model`, `problem`, `technician`) are present in the JSON payload.
+- **Invalid JSON**: Validate the JSON syntax before sending.
+- **Invalid ID**: Ensure the ID path parameter is a positive integer (e.g., `/api/repair-jobs/abc` will fail).
+- **No fields to update**: Ensure at least one field is provided in the PUT request body.
+
+### 3. Unauthorized (401)
+
+The `x-api-key` header is missing or does not match the configured key. Verify that:
+
+- The header name is exactly `x-api-key` (case-sensitive).
+- The value matches the API key configured in the Electron app.
+- The Electron app is running in production mode (dev mode skips auth).
+
+### 4. Not Found (404)
+
+The requested resource does not exist. This typically means:
+
+- The ID was valid but no record matches it.
+- The record may have been deleted already.
+- No action is needed; the item may already have been processed.
+
+### 5. Internal Server Error (500)
+
+An unexpected error occurred on the server. Recommended actions:
+
+- Retry the request after a short delay.
+- If the issue persists, check the Electron console for error details.
+- Restart the dashboard application if the server becomes unresponsive.
 
 ---
 

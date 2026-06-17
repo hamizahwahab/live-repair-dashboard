@@ -1,10 +1,11 @@
+import { useRef, useEffect } from "react";
 import type { UrgentCase } from "@/types";
 
 interface Props {
   cases: UrgentCase[];
 }
 
-/** Format a date string like "2026-06-10" → "10-06 02:30 PM" */
+/** Format a date string like "2026-06-10" → "10-06" or "2026-06-10 14:30" → "10-06 2:30 PM" */
 function formatDeadline(raw: string): string {
   if (!raw) return "—";
   // If it looks like a date (YYYY-MM-DD or YYYY-MM-DD HH:mm), format it
@@ -14,11 +15,16 @@ function formatDeadline(raw: string): string {
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const hh = date.getHours();
-  const min = String(date.getMinutes()).padStart(2, "0");
+  const min = date.getMinutes();
+
+  // Strip midnight (12:00 AM) — date-only input, no intentional time
+  if (hh === 0 && min === 0) return `${dd}-${mm}`;
+
   const ampm = hh >= 12 ? "PM" : "AM";
   const h12 = hh % 12 || 12;
+  const minStr = String(min).padStart(2, "0");
 
-  return `${dd}-${mm} ${h12}:${min} ${ampm}`;
+  return `${dd}-${mm} ${h12}:${minStr} ${ampm}`;
 }
 
 function deadlineStyle(): React.CSSProperties {
@@ -26,6 +32,40 @@ function deadlineStyle(): React.CSSProperties {
 }
 
 export default function UrgentPanel({ cases }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ─── Row-by-row auto-scroll (3s per row, loops back to top) ───
+  useEffect(() => {
+    if (cases.length === 0) return;
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    // Only scroll if content overflows
+    if (scrollEl.scrollHeight <= scrollEl.clientHeight + 2) return;
+
+    scrollEl.scrollTop = 0;
+
+    const INTERVAL_MS = 3000;
+
+    const interval = setInterval(() => {
+      const firstRow = scrollEl.querySelector("tr");
+      if (!firstRow) return;
+      const rowHeight = firstRow.offsetHeight;
+      const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+      if (maxScroll <= 0) return;
+
+      let next = scrollEl.scrollTop + rowHeight;
+
+      if (next >= maxScroll) {
+        scrollEl.scrollTo({ top: 0, behavior: "instant" });
+      } else {
+        scrollEl.scrollTo({ top: next, behavior: "smooth" });
+      }
+    }, INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [cases]);
+
   return (
     <div className="panel-card" style={{ borderColor: "rgba(239,68,68,0.15)" }}>
       <div className="panel-header">
@@ -34,7 +74,7 @@ export default function UrgentPanel({ cases }: Props) {
           Urgent Cases
         </h3>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar" style={{ padding: 0 }}>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto hide-scrollbar" style={{ padding: 0 }}>
         <table className="urgent-table">
           <thead>
             <tr>
