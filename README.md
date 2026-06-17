@@ -1,4 +1,4 @@
-# Live Repair Tracking Board (Dashboard 4)
+# Dashboard 4 - Live Repair Tracking Board
 
 A full-stack Electron + Next.js dashboard for tracking DJI Agriculture drone repairs in Bagan Serai. Designed for 1920×1080 TV display with live auto-scrolling, 30-second data polling, and an embedded SQLite API server.
 
